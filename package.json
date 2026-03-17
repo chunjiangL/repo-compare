@@ -1,0 +1,9 @@
+{
+  "name": "repo-compare",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:web & npm run dev:server & wait",
+    "dev:web": "cd web && npm run dev",
+    "dev:server": "cd server && npm run dev"
+  }
+}

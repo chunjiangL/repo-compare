@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.next/
+.env
+.env.local
+server/tmp/
+repos/
+tmp/
+server/data/
+*.tsbuildinfo
+CLAUDE.md
