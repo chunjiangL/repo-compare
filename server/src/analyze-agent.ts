@@ -96,8 +96,9 @@ function buildComparativeSchema(repoNames: string[]) {
                       title: { type: "string" as const, description: "Pipeline name, e.g. 'Training Pipeline', 'Request Handling', 'Overall Architecture'" },
                       description: { type: "string" as const, description: "One sentence explaining what this pipeline does" },
                       mermaid: { type: "string" as const, description: "Valid Mermaid flowchart definition (graph TD or graph LR). Use descriptive node labels. Keep to 5-15 nodes. No special characters in node IDs." },
+                      explanation: { type: "string" as const, description: "Detailed explanation (3-5 sentences) of how this pipeline works. Reference specific files, modules, and classes. Explain what each stage does and how data flows between them." },
                     },
-                    required: ["title", "description", "mermaid"],
+                    required: ["title", "description", "mermaid", "explanation"],
                   },
                 },
               },
@@ -200,20 +201,22 @@ For EACH repo, generate 3-6 pipeline diagrams that show how the repo works:
 - One diagram per major feature/function (e.g. "Training Pipeline", "Inference Pipeline", "Request Handling", "Build Process", "Data Processing")
 - The LAST diagram must be "Overall Architecture" showing how all components connect
 - Adapt the pipelines to what the repo actually does — an ML repo gets training/inference pipelines, a web server gets request/response pipelines, a CLI tool gets command execution pipelines, a video generator gets rendering pipelines, etc.
-- ALWAYS use \`graph TD\` (top-down layout) — never graph LR, it gets too cramped
-- Keep each diagram to 5-12 nodes with short but descriptive labels (2-4 words per node)
-- Use simple alphanumeric node IDs (A, B, C or step1, step2) — no special characters, no parentheses, no quotes in IDs
-- Show actual component/module names from the source code, not generic labels
+- ALWAYS use \`graph TD\` (top-down layout) — never graph LR
+- Keep each diagram to 5-12 nodes with short labels (2-4 words)
+- Node IDs MUST be simple alphanumeric: A, B, C or step1, step2 — NO spaces, NO special chars in IDs
+- Labels go inside square brackets ONLY: \`A[My Label]\` — NEVER use parentheses \`()\` or curly braces \`{}\` for node shapes
+- NO semicolons, NO quotes inside labels, NO nested brackets
+- Edges use \`-->\` only — no labels on edges
+- Do NOT wrap in markdown code fences
+- Show actual component/module names from source code
 
-Example:
-\`\`\`
+Example mermaid value:
 graph TD
   A[Audio Input] --> B[Preprocessor]
   B --> C[Feature Extractor]
   C --> D[Transformer Model]
   D --> E[Decoder]
-  E --> F[Text Output]
-\`\`\``;
+  E --> F[Text Output]`;
 
 }
 
@@ -266,6 +269,7 @@ function parseRepoFromOutput(
     title: String(p.title ?? ""),
     description: String(p.description ?? ""),
     mermaid: String(p.mermaid ?? ""),
+    explanation: String(p.explanation ?? ""),
   })).filter((p) => p.mermaid.length > 0);
 
   return {
@@ -281,6 +285,7 @@ function parseRepoFromOutput(
 export async function analyzeComparative(repos: RepoInput[]): Promise<{
   analyses: RepoAnalysis[];
   comparison: { comparable: boolean; reason: string; summary: string; winner: string | null };
+  sessionId?: string;
 }> {
   const repoNames = repos.map((r) => r.name);
   const prompt = buildComparativePrompt(repos);
@@ -297,7 +302,7 @@ export async function analyzeComparative(repos: RepoInput[]): Promise<{
       allowedTools: ["Read", "Glob", "Grep"],
       disallowedTools: ["Bash", "Edit", "Write", "Agent"],
       maxTurns: 50,
-      persistSession: false,
+      persistSession: true,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       env: cleanEnv,
@@ -308,10 +313,16 @@ export async function analyzeComparative(repos: RepoInput[]): Promise<{
     },
   });
 
+  let sessionId: string | undefined;
+
   for await (const msg of q) {
-    if (msg.type === "result") {
+    // Capture session ID from init message
+    if (msg.type === "system" && (msg as Record<string, unknown>).subtype === "init") {
+      sessionId = (msg as Record<string, unknown>).session_id as string;
+      console.log(`[Phase2] Session ID: ${sessionId}`);
+    } else if (msg.type === "result") {
       if (msg.subtype === "success") {
-        console.log(`[Phase2] Comparative result: success, has_structured=${!!msg.structured_output}`);
+        console.log(`[Phase2] Comparative result: success, has_structured=${!!msg.structured_output}, sessionId=${sessionId}`);
         let parsed: Record<string, unknown>;
         if (msg.structured_output) {
           parsed = msg.structured_output as Record<string, unknown>;
@@ -327,7 +338,6 @@ export async function analyzeComparative(repos: RepoInput[]): Promise<{
         const analyses = repos.map((r) => {
           const repoOut = reposOutput?.[r.name];
           if (!repoOut) {
-            // Fallback if agent missed a repo
             return {
               url: `https://github.com/${r.name}`,
               name: r.name,
@@ -348,7 +358,7 @@ export async function analyzeComparative(repos: RepoInput[]): Promise<{
           winner: (comparisonOutput?.winner as string) ?? null,
         };
 
-        return { analyses, comparison };
+        return { analyses, comparison, sessionId };
       }
       throw new Error(`Agent failed: ${msg.subtype}`);
     } else {

@@ -26,6 +26,7 @@ export interface PipelineDiagram {
   title: string;
   description: string;
   mermaid: string;
+  explanation: string;
 }
 
 export interface RepoAnalysis {

@@ -8,7 +8,13 @@ import { analyzeComparative, type RepoInput } from "./analyze-agent.js";
 import { generateMockAnalysis, generateAnalysisResult as generateMockResult } from "./mock-analysis.js";
 import type { RepoData, RepoMetadata } from "./types/github.js";
 import type { RepoAnalysis, SSEEvent } from "./types/analysis.js";
+import { answerChat } from "./chat-agent.js";
+import * as path from "path";
+import { fileURLToPath } from "url";
 import * as historyDb from "./db.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPOS_DIR = path.join(__dirname, "..", "..", "repos");
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -74,8 +80,7 @@ app.post("/analyze", async (req, res) => {
   // Phase 2: run ONE comparative agent with all repos
   if (phase2Inputs.length > 0 && !USE_MOCK) {
     try {
-      const { analyses, comparison } = await analyzeComparative(phase2Inputs);
-      // Send Phase 2 results for all repos
+      const { analyses, comparison, sessionId } = await analyzeComparative(phase2Inputs);
       for (const analysis of analyses) {
         repoAnalyses.set(analysis.name, analysis);
       }
@@ -83,8 +88,8 @@ app.post("/analyze", async (req, res) => {
         repos: analyses,
         comparison,
         overallSummary: `Comparative analysis of ${analyses.length} repositories.`,
+        sessionId,
       };
-      // Send one phase2 event per repo so UI updates each card
       for (const analysis of analyses) {
         sendSSE(res, { type: "phase2", repo: analysis.name, data: result });
       }
@@ -113,6 +118,39 @@ app.post("/analyze", async (req, res) => {
   }
 
   sendSSE(res, { type: "done" });
+  res.end();
+});
+
+// --- Chat API ---
+
+app.post("/chat", async (req, res) => {
+  const { sessionId, message, repos } = req.body as {
+    sessionId?: string;
+    message: string;
+    repos?: Array<{ name: string; analysis: RepoAnalysis }>;
+  };
+
+  if (!message) {
+    res.status(400).json({ error: "message required" });
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  try {
+    const fullResponse = await answerChat(sessionId, message, repos, (chunk) => {
+      res.write(`data: ${JSON.stringify({ type: "chat_token", content: chunk })}\n\n`);
+    });
+    res.write(`data: ${JSON.stringify({ type: "chat_done", content: fullResponse })}\n\n`);
+  } catch (err) {
+    console.error("[Chat] Error:", err instanceof Error ? err.message : err);
+    res.write(`data: ${JSON.stringify({ type: "chat_error", message: String(err) })}\n\n`);
+  }
+
   res.end();
 });
 

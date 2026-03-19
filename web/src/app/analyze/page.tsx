@@ -8,6 +8,7 @@ import { ComparisonView } from "@/components/ComparisonView";
 import { DimensionSection } from "@/components/DimensionSection";
 import { PipelineSection } from "@/components/PipelineSection";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
+import { Chat } from "@/components/Chat";
 import type { AnalysisResult, RepoAnalysis } from "@/types/analysis";
 import { extractRepoName } from "@/lib/utils";
 import { addCompleted } from "@/lib/history";
@@ -21,6 +22,7 @@ interface AnalyzeState {
  deepAnalyses: Record<string, RepoAnalysis>;
  done: boolean;
  comparison?: AnalysisResult["comparison"];
+ sessionId?: string;
 }
 
 const STORAGE_KEY = "analyze-state";
@@ -53,6 +55,7 @@ function AnalyzeContent() {
  const [deepAnalyses, setDeepAnalyses] = useState<Record<string, RepoAnalysis>>(restored.current?.deepAnalyses ?? {});
  const [done, setDone] = useState(restored.current?.done ?? false);
  const [comparison, setComparison] = useState<AnalysisResult["comparison"]>(restored.current?.comparison);
+ const [sessionId, setSessionId] = useState<string | undefined>(restored.current?.sessionId);
  const started = useRef(false);
  const savedToHistory = useRef(restored.current?.done ?? false);
 
@@ -60,8 +63,8 @@ function AnalyzeContent() {
 
  // Persist state to sessionStorage on every change
  useEffect(() => {
-  saveState({ phases, errors, analyses, deepAnalyses, done, comparison });
- }, [phases, errors, analyses, deepAnalyses, done, comparison]);
+  saveState({ phases, errors, analyses, deepAnalyses, done, comparison, sessionId });
+ }, [phases, errors, analyses, deepAnalyses, done, comparison, sessionId]);
 
  // Save to history when analysis completes
  useEffect(() => {
@@ -140,13 +143,16 @@ function AnalyzeContent() {
  }
 
  case "phase2": {
- const result = event.data as AnalysisResult;
+ const result = event.data as AnalysisResult & { sessionId?: string };
  setPhases((prev) => ({ ...prev, [event.repo]: "phase2" }));
  for (const repoAnalysis of result.repos) {
  setDeepAnalyses((prev) => ({ ...prev, [repoAnalysis.name]: repoAnalysis }));
  }
  if (result.comparison) {
  setComparison(result.comparison);
+ }
+ if (result.sessionId) {
+ setSessionId(result.sessionId);
  }
  break;
  }
@@ -202,6 +208,16 @@ function AnalyzeContent() {
  )}
 
  {hasResults && repoAnalyses.length > 1 ? (
+ <>
+ {/* Chat — below radar for multi-repo */}
+ {allDone && (
+ <div className="mb-8">
+ <Chat
+ sessionId={sessionId}
+ repos={deepRepoAnalyses.length > 0 ? deepRepoAnalyses : repoAnalyses}
+ />
+ </div>
+ )}
  <ComparisonView
  repos={repoAnalyses}
  deepRepos={deepRepoAnalyses.length > 0 ? deepRepoAnalyses : undefined}
@@ -210,10 +226,20 @@ function AnalyzeContent() {
  repoAnalyses.map((a) => [a.name, phases[a.name] === "phase1"])
  )}
  />
+ </>
  ) : hasResults ? (
  <div className="space-y-6">
- <div className="mx-auto max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
+ {/* Chat + Radar side by side for single repo */}
+ <div className="grid gap-6 lg:grid-cols-2 items-start">
+ <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
  <ScoreRadar repos={deepRepoAnalyses.length > 0 ? deepRepoAnalyses : repoAnalyses} />
+ </div>
+ {allDone && (
+ <Chat
+ sessionId={sessionId}
+ repos={deepRepoAnalyses.length > 0 ? deepRepoAnalyses : repoAnalyses}
+ />
+ )}
  </div>
  {repoAnalyses.map((analysis) => (
  <RepoCard
@@ -272,6 +298,7 @@ function AnalyzeContent() {
  )}
  </div>
  ) : null}
+
  </main>
  );
 }

@@ -9,8 +9,20 @@ interface MermaidDiagramProps {
 }
 
 function normalizeMermaid(def: string): string {
-  // Force top-down layout for readability — LR gets too cramped
-  return def.replace(/^graph\s+LR/m, "graph TD");
+  let s = def.trim();
+  // Force top-down
+  s = s.replace(/^graph\s+LR/m, "graph TD");
+  // Strip markdown fences if LLM wrapped it
+  s = s.replace(/^```(?:mermaid)?\s*\n?/m, "").replace(/\n?```\s*$/m, "");
+  // Remove problematic characters in node IDs: parentheses, quotes, semicolons
+  // Fix common LLM mistakes: `A(label)` is valid but `A(label with (parens))` breaks
+  // Replace nested parens in labels with brackets
+  s = s.replace(/\[([^\]]*)\(([^)]*)\)([^\]]*)\]/g, "[$1 $2 $3]");
+  // Fix node IDs with spaces or special chars — replace with underscores
+  s = s.replace(/^(\s*)([A-Za-z0-9_]+)\s*\[/gm, "$1$2[");
+  // Remove any stray semicolons that break parsing
+  s = s.replace(/;/g, "");
+  return s;
 }
 
 function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
@@ -25,15 +37,29 @@ function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
           startOnLoad: false,
-          theme: "neutral",
+          theme: "base",
           fontFamily: "var(--font-geist-sans), system-ui, sans-serif",
-          fontSize: 14,
+          fontSize: 13,
           flowchart: {
             curve: "basis",
             padding: 16,
-            nodeSpacing: 30,
-            rankSpacing: 40,
+            nodeSpacing: 35,
+            rankSpacing: 45,
             htmlLabels: true,
+          },
+          themeVariables: {
+            primaryColor: "#f4f4f5",
+            primaryTextColor: "#18181b",
+            primaryBorderColor: "#d4d4d8",
+            secondaryColor: "#fafafa",
+            secondaryTextColor: "#3f3f46",
+            secondaryBorderColor: "#e4e4e7",
+            lineColor: "#a1a1aa",
+            textColor: "#3f3f46",
+            mainBkg: "#f4f4f5",
+            nodeBorder: "#d4d4d8",
+            edgeLabelBackground: "#ffffff",
+            fontSize: "13px",
           },
           securityLevel: "strict",
         });
@@ -44,7 +70,7 @@ function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
         const { svg } = await mermaid.render(`mermaid-${id}`, normalized);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
-          // Scale SVG to fit container
+
           const svgEl = containerRef.current.querySelector("svg");
           if (svgEl) {
             svgEl.removeAttribute("height");
@@ -52,6 +78,12 @@ function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
             svgEl.style.maxHeight = "680px";
             svgEl.style.height = "auto";
             svgEl.style.width = "auto";
+
+            // Round node corners
+            svgEl.querySelectorAll(".node rect, .node polygon").forEach((el) => {
+              (el as SVGElement).style.rx = "6";
+              (el as SVGElement).style.ry = "6";
+            });
           }
         }
       } catch (err) {
@@ -67,7 +99,7 @@ function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="rounded border border-zinc-200 bg-zinc-50 p-3">
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
         <pre className="text-xs text-zinc-500 whitespace-pre-wrap">{definition}</pre>
       </div>
     );
@@ -76,7 +108,7 @@ function MermaidDiagram({ definition, id }: MermaidDiagramProps) {
   return (
     <div
       ref={containerRef}
-      className="flex justify-center overflow-auto rounded-lg border border-zinc-100 bg-zinc-50 p-4"
+      className="flex justify-center overflow-auto rounded-lg border border-zinc-200 bg-white p-5"
       style={{ maxHeight: 720 }}
     />
   );
@@ -120,6 +152,11 @@ export function PipelineSection({ pipelines, repoName }: PipelineSectionProps) {
                 definition={pipeline.mermaid}
                 id={`${stableId}-${i}`}
               />
+              {pipeline.explanation && (
+                <p className="text-xs leading-relaxed text-zinc-600 bg-zinc-50 rounded-lg p-3 border border-zinc-100">
+                  {pipeline.explanation}
+                </p>
+              )}
             </div>
           ))}
         </div>
