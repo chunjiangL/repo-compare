@@ -13,10 +13,6 @@ Paste in 2+ GitHub repo URLs and get:
 
 The deep analysis uses a single agent session that reads both repos, so it can make direct comparisons instead of analyzing each one in isolation.
 
-## Screenshots
-
-_TODO_
-
 ## Setup
 
 You need Node.js 20+ and a GitHub OAuth app.
@@ -67,4 +63,4 @@ cd server && env -u CLAUDECODE npx tsx src/index.ts
 
 ## License
 
-MIT
+[MIT](LICENSE)
